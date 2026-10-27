@@ -22,6 +22,13 @@
   button.on { background: #c33; }
   #now { margin-top: 16px; font-size: 32px; text-align: center; font-variant-numeric: tabular-nums; direction: ltr; }
   #install { background: #357; margin-top: 12px; font-size: 18px; padding: 12px; }
+  dialog { border: 0; border-radius: 14px; padding: 20px; max-width: 320px; text-align: center; box-shadow: 0 8px 30px #0004; }
+  dialog::backdrop { background: #0006; }
+  dialog img { width: 72px; height: 72px; border-radius: 16px; }
+  dialog h2 { margin: 10px 0 6px; }
+  dialog p { margin: 6px 0; line-height: 1.5; }
+  dialog button { margin-top: 12px; font-size: 18px; padding: 12px; }
+  dialog .later { background: #ddd; color: #333; }
   [hidden] { display: none !important; }
   .hint { font-size: 13px; color: #666; font-weight: 400; }
 </style>
@@ -29,7 +36,13 @@
 <body>
 <h1>יוננו 🕊️</h1>
 <button id="install" hidden>התקן כאפליקציה</button>
-<p class="hint" id="iosHint" hidden>להתקנה באייפון: כפתור השיתוף ⬆️ ואז "הוסף למסך הבית".</p>
+<dialog id="pop">
+  <img src="icons/icon-192.png" alt="">
+  <h2>להתקין את יוננו?</h2>
+  <p id="popText"></p>
+  <button id="popYes">התקן</button>
+  <button id="popLater" class="later">לא עכשיו</button>
+</dialog>
 
 <label>תדר נמוך (Hz)</label>
 <div class="row">
@@ -187,11 +200,37 @@ function tick() {
 
 // Install as an app: Android/desktop Chrome offer a prompt we can trigger from a button; iPhone needs Share > Add to Home Screen.
 let installEvt;
-addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; $('install').hidden = false; });
-addEventListener('appinstalled', () => { $('install').hidden = true; });
-$('install').onclick = async () => { installEvt.prompt(); await installEvt.userChoice; installEvt = null; $('install').hidden = true; };
 const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
-if (/iphone|ipad|ipod/i.test(navigator.userAgent) && !standalone) $('iosHint').hidden = false;
+const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const mobile = ios || /android|mobile/i.test(navigator.userAgent);
+// "Not now" hides the popup for a week; the small button stays for anyone who changes their mind
+const snoozed = () => Date.now() < +(localStorage.getItem('installSnooze') || 0);
+
+function popup(text, canInstall) {
+  if (standalone || snoozed() || $('pop').open) return;
+  $('popText').innerHTML = text;
+  $('popYes').hidden = !canInstall;
+  $('popLater').textContent = canInstall ? 'לא עכשיו' : 'הבנתי';
+  $('pop').showModal();
+}
+$('popLater').onclick = () => { localStorage.setItem('installSnooze', Date.now() + 7 * 864e5); $('pop').close(); };
+$('popYes').onclick = $('install').onclick = async () => {
+  $('pop').close();
+  installEvt.prompt(); await installEvt.userChoice; installEvt = null; $('install').hidden = true;
+};
+
+addEventListener('beforeinstallprompt', e => {
+  e.preventDefault(); installEvt = e; $('install').hidden = false;
+  popup('כך היא תיפתח ממסך הבית, במסך מלא, וגם בלי אינטרנט.', true);
+});
+addEventListener('appinstalled', () => { $('install').hidden = true; $('pop').open && $('pop').close(); });
+
+if (!standalone && ios) {
+  popup('לחצו על כפתור השיתוף <b>⬆️</b> בתחתית המסך, ואז על <b>"הוסף למסך הבית"</b>.', false);
+} else if (!standalone && mobile) {
+  // Browsers without an install prompt (e.g. Firefox): explain the menu after a moment
+  setTimeout(() => installEvt || popup('פתחו את תפריט הדפדפן <b>⋮</b> ובחרו <b>"התקנה"</b> או <b>"הוסף למסך הבית"</b>.', false), 3000);
+}
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
 
 $('go').onclick = () => ctx ? stop() : start();

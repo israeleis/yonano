@@ -1,5 +1,5 @@
 // Network first, so a new version shows up as soon as it is online; the cache is the fallback when offline.
-const CACHE = 'yonano-v1';
+const CACHE = 'yonano-v2';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png'];
 
 self.addEventListener('install', e => {
