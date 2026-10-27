@@ -39,13 +39,24 @@
   <span id="rateV"></span>
 </div>
 
+<label>צורת התנועה בין התדרים</label>
+<select id="shape">
+  <option value="sine">גל חלק, עגול (סינוס)</option>
+  <option value="triangle">משולש: עולה ויורד בקו ישר</option>
+  <option value="square">ריבוע: קופץ בין נמוך לגבוה</option>
+  <option value="sawtooth">מסור עולה: עולה וקופץ למטה</option>
+  <option value="sawdown">מסור יורד: יורד וקופץ למעלה</option>
+  <option value="jump">קפיצות אקראיות</option>
+  <option value="drift">שיטוט אקראי חלק</option>
+</select>
+
 <label>עוצמה</label>
 <div class="row">
   <input type="range" id="vol" min="0" max="1" step="0.01" value="0.5">
   <span id="volV"></span>
 </div>
 
-<label>צורת גל</label>
+<label>צורת הגל של הצליל עצמו</label>
 <select id="wave">
   <option value="sine">חלק (sine)</option>
   <option value="triangle">משולש (triangle)</option>
@@ -66,7 +77,8 @@ const $ = id => document.getElementById(id);
 const toHz = s => Math.round(MIN * Math.pow(MAX / MIN, s / 1000));
 const toSlider = hz => Math.round(1000 * Math.log(hz / MIN) / Math.log(MAX / MIN));
 
-let ctx, osc, lfo, lfoGain, out, startT;
+let ctx, osc, lfo, lfoGain, out, lastT, phase, randTimer, randTarget;
+const isRandom = () => ['jump', 'drift'].includes($('shape').value);
 
 function range() {
   let lo = Math.max(MIN, Math.min(MAX, +$('lo').value || MIN));
@@ -82,9 +94,20 @@ function apply() {
   const [lo, hi] = range();
   const t = ctx.currentTime;
   osc.type = $('wave').value;
-  osc.frequency.setTargetAtTime((lo + hi) / 2, t, 0.02);
-  lfoGain.gain.setTargetAtTime((hi - lo) / 2, t, 0.02);
-  lfo.frequency.setTargetAtTime(+$('rate').value, t, 0.02);
+  const shape = $('shape').value;
+  clearInterval(randTimer);
+  if (isRandom()) {
+    // Random shapes are driven from here: a new target every 1/rate seconds
+    lfoGain.gain.setTargetAtTime(0, t, 0.02);
+    randomStep();
+    randTimer = setInterval(randomStep, 1000 / +$('rate').value);
+  } else {
+    // Periodic shapes are a slow oscillator (LFO) added to the centre frequency
+    lfo.type = shape === 'sawdown' ? 'sawtooth' : shape;
+    osc.frequency.setTargetAtTime((lo + hi) / 2, t, 0.02);
+    lfoGain.gain.setTargetAtTime((hi - lo) / 2 * (shape === 'sawdown' ? -1 : 1), t, 0.02);
+    lfo.frequency.setTargetAtTime(+$('rate').value, t, 0.02);
+  }
   out.gain.setTargetAtTime(+$('vol').value, t, 0.02);
 }
 
@@ -93,7 +116,27 @@ for (const k of ['lo', 'hi']) {
   $(k + 'R').oninput = () => { $(k).value = toHz(+$(k + 'R').value); apply(); };
   $(k).oninput = () => { $(k + 'R').value = toSlider(+$(k).value || MIN); apply(); };
 }
-for (const k of ['rate', 'vol', 'wave']) $(k).oninput = apply;
+for (const k of ['rate', 'vol', 'wave', 'shape']) $(k).oninput = apply;
+
+function randomStep() {
+  const [lo, hi] = range();
+  const t = ctx.currentTime;
+  randTarget = lo + Math.random() * (hi - lo);
+  osc.frequency.cancelScheduledValues(t);
+  if ($('shape').value === 'jump') osc.frequency.setValueAtTime(randTarget, t);
+  else osc.frequency.setTargetAtTime(randTarget, t, 1 / +$('rate').value / 3);
+}
+
+// Where the periodic shapes are at phase p (0..1), from -1 to 1, matching the Web Audio oscillators
+function shapeAt(shape, p) {
+  switch (shape) {
+    case 'sine': return Math.sin(2 * Math.PI * p);
+    case 'triangle': return p < 0.25 ? 4 * p : p < 0.75 ? 2 - 4 * p : 4 * p - 4;
+    case 'square': return p < 0.5 ? 1 : -1;
+    case 'sawtooth': return p < 0.5 ? 2 * p : 2 * p - 2;
+    case 'sawdown': return -(p < 0.5 ? 2 * p : 2 * p - 2);
+  }
+}
 
 function start() {
   ctx = new AudioContext();
@@ -108,13 +151,14 @@ function start() {
   osc.connect(out).connect(ctx.destination);
   apply();
   osc.start(); lfo.start();
-  startT = ctx.currentTime;
+  lastT = ctx.currentTime; phase = 0;
   $('go').textContent = 'עצור'; $('go').classList.add('on');
   requestAnimationFrame(tick);
 }
 
 function stop() {
   out.gain.setTargetAtTime(0, ctx.currentTime, 0.02);
+  clearInterval(randTimer);
   const c = ctx; ctx = null;
   setTimeout(() => c.close(), 150);
   $('go').textContent = 'הפעל'; $('go').classList.remove('on');
@@ -124,8 +168,10 @@ function stop() {
 function tick() {
   if (!ctx) return;
   const [lo, hi] = range();
-  const phase = 2 * Math.PI * +$('rate').value * (ctx.currentTime - startT);
-  $('now').textContent = Math.round((lo + hi) / 2 + (hi - lo) / 2 * Math.sin(phase)) + ' Hz';
+  const t = ctx.currentTime;
+  phase = (phase + +$('rate').value * (t - lastT)) % 1; lastT = t;
+  const f = isRandom() ? osc.frequency.value : (lo + hi) / 2 + (hi - lo) / 2 * shapeAt($('shape').value, phase);
+  $('now').textContent = Math.round(f) + ' Hz';
   requestAnimationFrame(tick);
 }
 
