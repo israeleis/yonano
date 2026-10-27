@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>יוננו</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto; padding: 16px; background: #f4f4f0; color: #222; }
+  h1 { margin: 0 0 16px; }
+  label { display: block; margin-top: 18px; font-weight: 600; }
+  .row { display: flex; gap: 10px; align-items: center; }
+  input[type=range] { flex: 1; direction: ltr; }
+  input[type=number] { width: 90px; font-size: 16px; padding: 4px; }
+  select { font-size: 16px; padding: 4px; }
+  button { margin-top: 24px; width: 100%; font-size: 22px; padding: 16px; border: 0; border-radius: 10px; background: #2a7; color: #fff; }
+  button.on { background: #c33; }
+  #now { margin-top: 16px; font-size: 32px; text-align: center; font-variant-numeric: tabular-nums; direction: ltr; }
+  .hint { font-size: 13px; color: #666; font-weight: 400; }
+</style>
+</head>
+<body>
+<h1>יוננו 🕊️</h1>
+
+<label>תדר נמוך (Hz)</label>
+<div class="row">
+  <input type="range" id="loR" min="0" max="1000">
+  <input type="number" id="lo" min="10" value="2000">
+</div>
+
+<label>תדר גבוה (Hz)</label>
+<div class="row">
+  <input type="range" id="hiR" min="0" max="1000">
+  <input type="number" id="hi" min="10" value="4000">
+</div>
+
+<label>מהירות "אוי אוי" (פעמים בשנייה)</label>
+<div class="row">
+  <input type="range" id="rate" min="0.2" max="10" step="0.1" value="2">
+  <span id="rateV"></span>
+</div>
+
+<label>עוצמה</label>
+<div class="row">
+  <input type="range" id="vol" min="0" max="1" step="0.01" value="0.5">
+  <span id="volV"></span>
+</div>
+
+<label>צורת גל</label>
+<select id="wave">
+  <option value="sine">חלק (sine)</option>
+  <option value="triangle">משולש (triangle)</option>
+  <option value="square">מרובע, צורם (square)</option>
+  <option value="sawtooth">שן מסור, צורם (sawtooth)</option>
+</select>
+
+<button id="go">הפעל</button>
+<div id="now">— Hz</div>
+<p class="hint" id="maxNote"></p>
+
+<script>
+const MIN = 10;
+let MAX = 24000; // updated to half the sample rate once audio starts
+const $ = id => document.getElementById(id);
+
+// Sliders are logarithmic: 0..1000 maps to MIN..MAX
+const toHz = s => Math.round(MIN * Math.pow(MAX / MIN, s / 1000));
+const toSlider = hz => Math.round(1000 * Math.log(hz / MIN) / Math.log(MAX / MIN));
+
+let ctx, osc, lfo, lfoGain, out, startT;
+
+function range() {
+  let lo = Math.max(MIN, Math.min(MAX, +$('lo').value || MIN));
+  let hi = Math.max(MIN, Math.min(MAX, +$('hi').value || MIN));
+  if (lo > hi) [lo, hi] = [hi, lo];
+  return [lo, hi];
+}
+
+function apply() {
+  $('rateV').textContent = $('rate').value;
+  $('volV').textContent = Math.round($('vol').value * 100) + '%';
+  if (!ctx) return;
+  const [lo, hi] = range();
+  const t = ctx.currentTime;
+  osc.type = $('wave').value;
+  osc.frequency.setTargetAtTime((lo + hi) / 2, t, 0.02);
+  lfoGain.gain.setTargetAtTime((hi - lo) / 2, t, 0.02);
+  lfo.frequency.setTargetAtTime(+$('rate').value, t, 0.02);
+  out.gain.setTargetAtTime(+$('vol').value, t, 0.02);
+}
+
+for (const k of ['lo', 'hi']) {
+  $(k + 'R').value = toSlider(+$(k).value);
+  $(k + 'R').oninput = () => { $(k).value = toHz(+$(k + 'R').value); apply(); };
+  $(k).oninput = () => { $(k + 'R').value = toSlider(+$(k).value || MIN); apply(); };
+}
+for (const k of ['rate', 'vol', 'wave']) $(k).oninput = apply;
+
+function start() {
+  ctx = new AudioContext();
+  MAX = Math.floor(ctx.sampleRate / 2);
+  $('maxNote').textContent = `המקסימום במכשיר הזה: \u2066${MAX} Hz\u2069. רוב רמקולי הבלוטות' לא משמיעים טוב מתחת ל-\u206660 Hz\u2069 או מעל \u206618–20 kHz\u2069.`;
+  osc = ctx.createOscillator();
+  lfo = ctx.createOscillator();  // the slow wave that moves the pitch up and down
+  lfoGain = ctx.createGain();
+  out = ctx.createGain();
+  out.gain.value = 0;
+  lfo.connect(lfoGain).connect(osc.frequency);
+  osc.connect(out).connect(ctx.destination);
+  apply();
+  osc.start(); lfo.start();
+  startT = ctx.currentTime;
+  $('go').textContent = 'עצור'; $('go').classList.add('on');
+  requestAnimationFrame(tick);
+}
+
+function stop() {
+  out.gain.setTargetAtTime(0, ctx.currentTime, 0.02);
+  const c = ctx; ctx = null;
+  setTimeout(() => c.close(), 150);
+  $('go').textContent = 'הפעל'; $('go').classList.remove('on');
+  $('now').textContent = '— Hz';
+}
+
+function tick() {
+  if (!ctx) return;
+  const [lo, hi] = range();
+  const phase = 2 * Math.PI * +$('rate').value * (ctx.currentTime - startT);
+  $('now').textContent = Math.round((lo + hi) / 2 + (hi - lo) / 2 * Math.sin(phase)) + ' Hz';
+  requestAnimationFrame(tick);
+}
+
+$('go').onclick = () => ctx ? stop() : start();
+apply();
+</script>
+</body>
+</html>
