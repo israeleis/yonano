@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>יוננו</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#22aa77">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="יוננו">
 <style>
   body { font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto; padding: 16px; background: #f4f4f0; color: #222; }
   h1 { margin: 0 0 16px; }
@@ -15,11 +21,15 @@
   button { margin-top: 24px; width: 100%; font-size: 22px; padding: 16px; border: 0; border-radius: 10px; background: #2a7; color: #fff; }
   button.on { background: #c33; }
   #now { margin-top: 16px; font-size: 32px; text-align: center; font-variant-numeric: tabular-nums; direction: ltr; }
+  #install { background: #357; margin-top: 12px; font-size: 18px; padding: 12px; }
+  [hidden] { display: none !important; }
   .hint { font-size: 13px; color: #666; font-weight: 400; }
 </style>
 </head>
 <body>
 <h1>יוננו 🕊️</h1>
+<button id="install" hidden>התקן כאפליקציה</button>
+<p class="hint" id="iosHint" hidden>להתקנה באייפון: כפתור השיתוף ⬆️ ואז "הוסף למסך הבית".</p>
 
 <label>תדר נמוך (Hz)</label>
 <div class="row">
@@ -174,6 +184,15 @@ function tick() {
   $('now').textContent = Math.round(f) + ' Hz';
   requestAnimationFrame(tick);
 }
+
+// Install as an app: Android/desktop Chrome offer a prompt we can trigger from a button; iPhone needs Share > Add to Home Screen.
+let installEvt;
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; $('install').hidden = false; });
+addEventListener('appinstalled', () => { $('install').hidden = true; });
+$('install').onclick = async () => { installEvt.prompt(); await installEvt.userChoice; installEvt = null; $('install').hidden = true; };
+const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+if (/iphone|ipad|ipod/i.test(navigator.userAgent) && !standalone) $('iosHint').hidden = false;
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
 
 $('go').onclick = () => ctx ? stop() : start();
 apply();
