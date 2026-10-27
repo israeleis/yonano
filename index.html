@@ -24,13 +24,13 @@
 <label>תדר נמוך (Hz)</label>
 <div class="row">
   <input type="range" id="loR" min="0" max="1000">
-  <input type="number" id="lo" min="10" value="2000">
+  <input type="number" id="lo" min="1" value="2000">
 </div>
 
 <label>תדר גבוה (Hz)</label>
 <div class="row">
   <input type="range" id="hiR" min="0" max="1000">
-  <input type="number" id="hi" min="10" value="4000">
+  <input type="number" id="hi" min="1" value="4000">
 </div>
 
 <label>מהירות "אוי אוי" (פעמים בשנייה)</label>
@@ -69,7 +69,7 @@
 <p class="hint" id="maxNote"></p>
 
 <script>
-const MIN = 10;
+const MIN = 1;
 let MAX = 24000; // updated to half the sample rate once audio starts
 const $ = id => document.getElementById(id);
 
